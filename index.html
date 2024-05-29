@@ -1,266 +1,59 @@
-<script src="mraid.js"></script> 
-<script>
-    class VastObject {
-        constructor(impression,linearCreatives,nonLinearCreatives,companionAds) {
-            this.impression = impression
-            this.linearCreative = linearCreatives
-            this.nonLinearCreatives = nonLinearCreatives
-            this.companionAd = companionAds
-        }
-        getCreatives(){
-            return [this.linearCreative,this.companionAd]
-        }
-    }
-    class CreativeObject {
-        constructor(creativeType,clickThrough,clickTracking,url) {
-            this.type = creativeType
-            this.clickThrough = clickThrough
-            this.clickTracking = clickTracking
-            this.url = url
-        }
-    }
-</script>
-
-<div id="container" style="width:320px;height:480px;background-color:#ffffff;">	
-</div>
-
-<style type="text/css">
-    body
-    {
-        margin:0;
-        background-color:#FFFFFF;
-    }
-</style>
-
-<script>
-
-function init(){
-    //Gets the vast XML textץ
-    var request = new XMLHttpRequest();
-    request.open("GET", "https://run.mocky.io/v3/a7923657-00d8-4ca8-beb1-e56dcda7079d", true);
-    request.send(null)
-    request.onreadystatechange = function() {
-        //Upon successful response
-        if (request.readyState == 4){
-            let myVastObj=parseXML(request.responseText)
-            document.getElementById("container").addEventListener('touchmove', function(event) { event.preventDefault(); }, false);
-            doReadyCheck().then(()=>{
-				setupViewport(320)
-                //When mraid is ready create an array of promises with the loaded creative metadata.
-                let Creatives=myVastObj.getCreatives()
-                //Play the ad.
-                play(Creatives,myVastObj.impression)
-        })}
-    }
-}
-
-function play(creatives, impression){
-    //Plays the creative and the companion ad by that order.
-    const mapSeries = async (iterable, action) => {
-            fireImpression(impression)
-            for (const x of iterable) {
-                let readyCreative = await prepareCreative(x);
-                await action(readyCreative);
-            }
-            mraid.close()
-        }
-    if (!mraid.isViewable())
-	{
-	mraid.addEventListener("viewableChange", function(display){
-            if(display){
-                mraid.removeEventListener("viewableChange",this)
-                mapSeries(creatives,playAd)
-            }
-        }); 
-	}
-	else
-	{
-        mapSeries(creatives,playAd)
-	}
-}
-
-function prepareCreative(creative){
-    //Loads creative metadata and adjust it's size to screen.
-    return new Promise((resolve, reject)=> {
-        let mediaElement = creative.type.includes('video') ? document.createElement("video") :document.createElement("img")
-	mediaElement.onclick = function(){onAdClick(creative.clickThrough,creative.clickTracking)}
-        if (mediaElement.tagName === 'VIDEO') {
-            mediaElement.onloadeddata = function() {
-		mediaElement = adjustCreativeElementToDom(mediaElement.videoWidth, mediaElement.videoHeight, mediaElement)
-		resolve(mediaElement)
-            }
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <script src="mraid.js"></script>
+    <script type="text/javascript">
+      function onMraidInit() {
+        if (mraid.getState() === "loading") {
+          mraid.addEventListener("ready", onSdkReady);
         } else {
-            mediaElement.onload = function() {
-		mediaElement = adjustCreativeElementToDom(mediaElement.width, mediaElement.height , mediaElement)
-		resolve(mediaElement)
+          onSdkReady();
+        }
+      }
+      function onSdkReady() {
+        if (mraid.isViewable()) {
+          adDidAppear();
+        } else {
+          mraid.addEventListener("viewableChange", function (viewable) {
+            if (viewable) {
+              adDidAppear();
+            } else {
+              adDidDisappear();
             }
-        } 
-		mediaElement.src = creative.url
-    })
-}
-
-function adjustCreativeElementToDom(mediaWidth, mediaHeight, mediaElement)
-{	
-	// Right now it is assumed this SDK supports HTML5 video but may not support inline
-	if (mraid.supports("inlineVideo"))
-	{
-		// Hide close button
-		mraid.useCustomClose(true);
-	}
-	
-	// Force landscape orientation
-	mraid.setOrientationProperties({"allowOrientationChange":false, "forceOrientation":"landscape"});
-	
-	// Adjust dimensions for device using current orientation to find landscape values
-	var screenSize = mraid.getScreenSize();
-	var screenLandscapeWidth = screenSize.width;
-	var screenLandscapeHeight = screenSize.height;
-	if ( (window.orientation == 0) || (window.orientation == 180) )
-	{
-		// If device is in portrait swap dimensions
-		screenLandscapeWidth = screenSize.height;
-		screenLandscapeHeight = screenSize.width;
-	}
-	
-	document.getElementById("container").style.width = screenLandscapeWidth + "px";
-	document.getElementById("container").style.height = screenLandscapeHeight + "px";
-	
-	// First video to fit full width and and then scale height
-	var videoWidth = mediaWidth;
-	var videoHeight = mediaHeight;
-	var videoRatio = videoWidth/videoHeight;
-	var newWidth = videoWidth;
-	var newHeight = videoHeight;
-	if(videoWidth > screenLandscapeWidth)
-	{
-		newWidth = screenLandscapeWidth;
-		newHeight = newWidth/videoRatio;
-	}
-	else
-	{
-		newWidth = Math.max(screenLandscapeWidth, videoWidth);
-		newHeight = newWidth/videoRatio;
-	}
-	
-	// If scaled height too big then scale back until it fits
-	if (newHeight > screenLandscapeHeight)
-	{
-		videoRatio = videoHeight/videoWidth;
-		
-		newHeight = screenLandscapeHeight;
-		newWidth = newHeight/videoRatio;
-	}
-
-	// Calculate margins to center
-	var topBottomMargins = (screenLandscapeHeight - newHeight)/2.0;
-	var leftRightMargins = (screenLandscapeWidth - newWidth)/2.0;
-	
-	// Update video dimensions
-	mediaElement.style.width = newWidth + "px";
-	mediaElement.style.height = newHeight + "px";
-	mediaElement.style.margin = topBottomMargins + "px " + leftRightMargins + "px";
-    return mediaElement
-}
-
-function playAd(mediaElementDom)
-{
-	document.getElementById("container").innerHTML=""
-	document.getElementById("container").appendChild(mediaElementDom);
-	if (mediaElementDom.tagName==="VIDEO"){
-		mediaElementDom.WebKitPlaysInline = true
-		mediaElementDom.play();
-		mraid.addEventListener("viewableChange",isPlayedInBackground)
-		return new Promise((resolve,reject)=> {
-		    if (mraid.supports("inlineVideo")) {
-			// Close video on finish
-			mediaElementDom.addEventListener('ended',() => {
-			    mraid.removeEventListener("viewableChange",isPlayedInBackground)
-			    resolve()
-			})
-		    }
-		})
-	}
-	else{
-		return new Promise((resolve,reject) => {
-		    setTimeout(()=>{
-			document.getElementById("container").innerHTML=""
-			resolve()
-		    }, 5000)
-		})
-	}
-}
-
-function doReadyCheck()
-{	
-    return new Promise((resolve,reject)=>{
-        function whenReady(){
-                mraid.removeEventListener("ready",whenReady)
-                reslove()
+          });
         }
-        if (mraid.getState() == 'loading') {	
-            mraid.addEventListener("ready",whenReady );  
-        } 
-        else{ 	
-            resolve();      
-        }
-    })
-}
-
-function setupViewport(width)
-{
-	var element = document.querySelector("meta[name=viewport]");
-	if (!element)
-	{
-		element = document.createElement("meta");
-		element.name = "viewport";
-		element.content = "width="+width+", user-scalable=no";
-		document.getElementsByTagName('head')[0].appendChild(element);
-	}
-	else
-	{
-		element.content = "width="+width+", user-scalable=no";
-	}
-}
-
-function parseXML(xmlString){
-    let xmlDoc=new DOMParser().parseFromString(xmlString, "text/xml");
-    let impression=xmlDoc.getElementsByTagName("Impression")[0].firstChild.nextSibling.nodeValue
-    let linearCreative = [].slice.call(xmlDoc.getElementsByTagName("Linear")).map
-                                (x=>new CreativeObject(
-                                    x.getElementsByTagName("MediaFile")[0].getAttribute("type"),
-                                    x.getElementsByTagName("ClickThrough")[0].firstChild.nextSibling.nodeValue,
-                                    x.getElementsByTagName("ClickTracking")[0].firstChild.nodeValue,
-                                    x.getElementsByTagName("MediaFile")[0].firstChild.nextSibling.nodeValue))[0]
-    let companionAd= [].slice.call(xmlDoc.getElementsByTagName("CompanionAds")).map
-                                (x=>new CreativeObject(
-                                    x.getElementsByTagName("StaticResource")[0].getAttribute("creativeType"),
-                                    x.getElementsByTagName("CompanionClickThrough")[0].firstChild.nodeValue,
-                                    x.getElementsByTagName("CompanionClickTracking")[0].firstChild.nodeValue,
-                                    x.getElementsByTagName("StaticResource")[0].firstChild.nextSibling.nodeValue))[0]
-    return new VastObject(impression,linearCreative,null,companionAd)
-}
-
-function onAdClick(clickThrough,clickTracking){
-    fireImpression(clickTracking)
-    mraid.open(clickThrough)
-}
-
-function fireImpression(impression){
-    var request = new XMLHttpRequest();
-    request.open("GET", impression, true);
-    request.send(null);
-    request.onreadystatechange = function() {
-        if (request.readyState == 4)
-            console.log(request.responseText)
-    }      
-}
-
-function isPlayedInBackground(display){
-	if (!display)
-		document.getElementById("adVideo").pause()
-	else
-		document.getElementById("adVideo").play()
-}
-
-init()
-</script>
+      }
+      function adDidAppear() {}
+      function adDidDisappear() {}
+      onMraidInit();
+    </script>
+  </head>
+  <body>
+    <div class="celtra-ad-v3">
+      <!-- logan_timestamp = raw $LG_TIMESTAMP -->
+      <img
+        src="data:image/png,celtra"
+        style="display: none;"
+        onerror="
+                (function(img) {
+                    var params = {'clickUrl':'$LG_CLICK_URL','expandDirection':'undefined','preferredClickThroughWindow':'new','clickEvent':'advertiser','iosAdvId':'$LG_DEVICE_ID','androidAdvId':'$LG_DEVICE_ID','externalAdServer':'Logan','tagVersion':'html-standard-7'};
+                    [].slice.apply(img.parentNode.childNodes).forEach(function(n) { var decfs = { urldecode: decodeURIComponent, htmldecode: function(v) { var d = document.createElement('div'); d.innerHTML = v; return d.textContent; }, eval: function(v) { return eval(v); }, raw: function(v) { return v; } }; var m; if (n.nodeType == 8 &amp;&amp; (m = n.textContent.match(/^&#92;s+([&#92;w%.]+)(&#92;[.+&#92;])?&#92;s+=&#92;s+(&#92;w+)&#92;s+(.*)$/i))) { try { params[m[1]+(m[2] || '')] = decfs[m[3]](m[4].replace(/^&#92;s+|&#92;s+$/g, '')); } catch (e) {} } });
+                    var req = document.createElement('script');
+                    req.id = params.scriptId = 'celtra-script-' + (window.celtraScriptIndex = (window.celtraScriptIndex||0)+1);
+                    params.clientTimestamp = new Date/1000;
+                    params.clientTimeZoneOffsetInMinutes = new Date().getTimezoneOffset();
+                    params.hostPageLoadId=window.celtraHostPageLoadId=window.celtraHostPageLoadId||(Math.random()+'').slice(2);
+                    var qs = '';
+                    for (var k in params) {
+                        qs += '&amp;' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+                    }
+                    var src = 'https://ads.celtra.com/4d30bd9c/web.js?' + qs;
+                    req.src = src;
+                    img.parentNode.insertBefore(req, img.nextSibling);
+                })(this);
+            "
+      />
+    </div>
+  </body>
+</html>
